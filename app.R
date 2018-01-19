@@ -8,6 +8,7 @@
 #
 
 library(shiny)
+library(leaflet)
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
@@ -15,7 +16,9 @@ ui <- fluidPage(
   # Application title
   fluidRow(
     column(2, imageOutput("logo", height = "50px")),
-    column(10, titlePanel("Near Real Time Footfall Demo"))
+    column(6, titlePanel("Near Real Time Footfall Demo")),
+    column(4, p('Now: ',
+                strong(textOutput("currentTime", inline = TRUE))))
   ),
 
   # Sidebar with a slider input for number of bins
@@ -30,7 +33,7 @@ ui <- fluidPage(
 
     # Show a plot of the generated distribution
     mainPanel(
-      plotOutput("distPlot")
+      leafletOutput("map", height = "400px")
     )
   )
 )
@@ -41,13 +44,15 @@ server <- function(input, output) {
   output$logo <- renderImage(list(src = normalizePath('logo.png')),
                              deleteFile = FALSE)
 
-  output$distPlot <- renderPlot({
-    # generate bins based on input$bins from ui.R
-    x    <- faithful[, 2]
-    bins <- seq(min(x), max(x), length.out = input$bins + 1)
+  output$currentTime <- renderText({
+    reactiveTimer(1000)()
+    format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z")
+  })
 
-    # draw the histogram with the specified number of bins
-    hist(x, breaks = bins, col = 'darkgray', border = 'white')
+  output$map <- renderLeaflet({
+    leaflet() %>%
+      addProviderTiles(providers$CartoDB.Positron) %>%
+      setView(103.82, 1.34, 11)
   })
 
 }
