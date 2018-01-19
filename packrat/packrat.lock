@@ -128,6 +128,12 @@ Version: 0.8
 Hash: 045d7c594d503b41f1c28946d076c8aa
 Requires: mime
 
+Package: memoise
+Source: CRAN
+Version: 1.1.0
+Hash: 410fcd334bc626db100237cc1370f2e9
+Requires: digest
+
 Package: mime
 Source: CRAN
 Version: 0.5
@@ -172,6 +178,12 @@ Source: CRAN
 Version: 1.4.3
 Hash: 8b30de99bcf5d40fa1e3be0809ecce8e
 Requires: Rcpp, plyr, stringr
+
+Package: rgdal
+Source: CRAN
+Version: 1.2-16
+Hash: ad2a54287fe1f3bfc141ef5b792e5896
+Requires: sp
 
 Package: rlang
 Source: CRAN
