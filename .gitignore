@@ -4,3 +4,6 @@
 .Ruserdata
 packrat/lib*/
 packrat/src/
+
+# Demo app credentials
+api-credentials.json

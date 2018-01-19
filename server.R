@@ -8,11 +8,21 @@
 #
 
 library(dygraphs)
+library(httr)
 library(leaflet)
 library(memoise)
+library(openssl)
 library(rgdal)
 library(shiny)
+library(tidyjson)
 library(xts)
+
+#### API Credentials
+# Store credentials in api-credentials.json, with the following format:
+# {
+#   "key": "YOUR_KEY",
+#   "secret": "YOUR_SECRET"
+# }
 
 
 #### Parameters
@@ -41,7 +51,29 @@ get.roishape <- memoise(function(roiLayer) {
 
 
 #### Server Logic
-server <- function(input, output) {
+server <- function(input, output, session) {
+
+  # Credentials
+  creds.json <- reactiveFileReader(1000, session, "api-credentials.json", read_json)
+
+  creds.b64 <- reactive({
+    cred <- creds.json() %>%
+      spread_values(key = jstring("key"), secret = jstring("secret"))
+    key.secret.b64 <- base64_encode(paste(cred$key, cred$secret, sep = ":"))
+  })
+
+  token <- reactive({
+    token.response <- POST("https://apistore.datasparkanalytics.com/token",
+                           body = "grant_type=client_credentials",
+                           add_headers(Authorization = paste("Basic", creds.b64())))
+    warn_for_status(token.response)
+    if (token.response$status_code == 200) {
+      content(token.response)$access_token
+    }
+    else {
+      ""
+    }
+  })
 
   # Logo
   output$logo <- renderImage(list(src = normalizePath('logo.png')),
