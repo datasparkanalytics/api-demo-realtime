@@ -10,32 +10,41 @@
 library(dygraphs)
 library(leaflet)
 library(shiny)
+library(shinydashboard)
 
 # Define UI for application
-ui <- fluidPage(
+ui <- dashboardPage(
 
-  # Header
-  fluidRow(
-    column(2, imageOutput("logo", height = "50px")),
-    column(6, titlePanel("Near Real Time Footfall Demo")),
-    column(4, p('Now: ',
-                strong(textOutput("currentTime", inline = TRUE))))
+  dashboardHeader(title = "Near Real Time Footfall Demo", titleWidth = 400),
+
+  dashboardSidebar(
+    p(imageOutput("logo", height = "50px", inline = TRUE), align = "center")
   ),
 
-  # Sidebar
-  sidebarLayout(
-    sidebarPanel(
-      sliderInput("bins",
-                  "Number of bins:",
-                  min = 1,
-                  max = 50,
-                  value = 30)
+  dashboardBody(
+    # Status Bar
+    fluidRow(
+      valueBox("Now", subtitle = textOutput("currentTime"),
+               icon = icon("clock-o"), width = 6, color = "light-blue"),
+      valueBox("Latest", subtitle = "TBD",
+               icon = icon("hourglass-2"), width = 6, color = "teal")
     ),
 
-    # Show a plot of the generated distribution
-    mainPanel(
-      leafletOutput("map", height = "450px"),
-      dygraphOutput("timeseries.chart", height = "200px")
+    # Map
+    fluidRow(
+      box(width = 12,
+        leafletOutput("map", height = "350px")
+      )
+    ),
+
+    # Time Series
+    fluidRow(
+      box(width = 12,
+        dygraphOutput("timeseries.chart", height = "100px")
+      )
     )
-  )
+
+  ),
+
+  skin = "blue"
 )

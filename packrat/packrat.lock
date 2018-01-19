@@ -210,6 +210,12 @@ Hash: 4d47532a807122bfd6bc3818310f9d2e
 Requires: R6, digest, htmltools, httpuv, jsonlite, mime, sourcetools,
     xtable
 
+Package: shinydashboard
+Source: CRAN
+Version: 0.6.1
+Hash: b48e9bf83e320416eca507dd0d75b362
+Requires: htmltools, shiny
+
 Package: sourcetools
 Source: CRAN
 Version: 0.1.6
