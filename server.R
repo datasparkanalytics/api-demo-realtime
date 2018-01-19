@@ -7,14 +7,17 @@
 #    http://shiny.rstudio.com/
 #
 
+library(dygraphs)
 library(leaflet)
 library(memoise)
 library(rgdal)
 library(shiny)
+library(xts)
 
 
 #### Parameters
 roi.layer <- "sub-zone"
+default.tz <- "Asia/Singapore"
 shp.meta <- data.frame(
   layer = c("MP14_REGION_WEB_PL", "MP14_PLNG_AREA_WEB_PL", "MP14_SUBZONE_WEB_PL"),
   govId.name = c("REGION_C", "PLN_AREA_C", "SUBZONE_C"),
@@ -24,6 +27,11 @@ shp.meta <- data.frame(
 
 
 #### Helpers
+
+# Current time with time zone
+now.tz <- function(tz = default.tz) {
+  as.POSIXct(as.POSIXlt(Sys.time(), tz = tz), tz = tz)
+}
 
 # Get ROI data from Shapefiles
 get.roishape <- memoise(function(roiLayer) {
@@ -42,7 +50,7 @@ server <- function(input, output) {
   # Current timer
   output$currentTime <- renderText({
     reactiveTimer(1000)()
-    format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z")
+    format(now.tz(), "%Y-%m-%d %H:%M:%S %Z")
   })
 
   # Base map
@@ -61,6 +69,19 @@ server <- function(input, output) {
     leafletProxy("map", data = rois) %>%
       clearGroup("rois") %>%
       addPolygons(weight = 1, fillOpacity = 0.7, group = "rois")
+  })
+
+  # Time series chart
+  output$timeseries.chart <- renderDygraph({
+    # Mock data
+    datetimes <- seq.POSIXt(as.POSIXct("2015-01-01", tz=default.tz),
+                            as.POSIXct("2015-01-02", tz=default.tz), by="5 min")
+    values <- rnorm(length(datetimes))
+    series <- xts(values, order.by = datetimes, tz=default.tz)
+
+    dygraph(series) %>%
+      dyHighlight(highlightSeriesBackgroundAlpha = 0.3) %>%
+      dyOptions(useDataTimezone = TRUE)
   })
 
 }

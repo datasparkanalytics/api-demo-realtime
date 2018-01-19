@@ -60,6 +60,12 @@ Source: CRAN
 Version: 0.6.14
 Hash: 8017201df840795327c67825e98b52c1
 
+Package: dygraphs
+Source: CRAN
+Version: 1.1.1.4
+Hash: 6c0c428f37a8923a337e1af157f63839
+Requires: htmltools, htmlwidgets, magrittr, xts, zoo
+
 Package: ggplot2
 Source: CRAN
 Version: 2.2.1
@@ -252,7 +258,18 @@ Source: CRAN
 Version: 1.8-2
 Hash: 7293235cfcc14cdff1ce7fd1a0212031
 
+Package: xts
+Source: CRAN
+Version: 0.10-1
+Hash: 7a0e7f006bef315e41038c5258905a51
+Requires: zoo
+
 Package: yaml
 Source: CRAN
 Version: 2.1.16
 Hash: 784ea5d8302d4a81f166a32a33c10711
+
+Package: zoo
+Source: CRAN
+Version: 1.8-1
+Hash: 4662280a4dad0f93d6ecfdf797fc1cf2

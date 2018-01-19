@@ -7,6 +7,7 @@
 #    http://shiny.rstudio.com/
 #
 
+library(dygraphs)
 library(leaflet)
 library(shiny)
 
@@ -33,7 +34,8 @@ ui <- fluidPage(
 
     # Show a plot of the generated distribution
     mainPanel(
-      leafletOutput("map", height = "400px")
+      leafletOutput("map", height = "450px"),
+      dygraphOutput("timeseries.chart", height = "200px")
     )
   )
 )
