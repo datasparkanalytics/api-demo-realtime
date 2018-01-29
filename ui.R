@@ -18,7 +18,19 @@ ui <- dashboardPage(
   dashboardHeader(title = "Near Real Time Footfall Demo", titleWidth = 400),
 
   dashboardSidebar(
-    p(imageOutput("logo", height = "50px", inline = TRUE), align = "center")
+    p(imageOutput("logo", height = "50px", inline = TRUE), align = "center"),
+    selectInput("layer", "Layer",
+                c("Planning Region" = "planning-region",
+                  "Planning Area" = "planning-area",
+                  "Sub Zone" = "sub-zone"),
+                selected = "sub-zone"),
+    radioButtons("status", "Status",
+                 c("All" = "All",
+                   "Stay" = "Stay",
+                   "Transit" = "Transit",
+                   "Pause" = "Pause",
+                   "Unknown" = "Unknown"),
+                 selected = "All")
   ),
 
   dashboardBody(
@@ -26,7 +38,7 @@ ui <- dashboardPage(
     fluidRow(
       valueBox("Now", subtitle = textOutput("currentTime"),
                icon = icon("clock-o"), width = 6, color = "light-blue"),
-      valueBox("Latest", subtitle = "TBD",
+      valueBox("Latest", subtitle = textOutput("latestTime"),
                icon = icon("hourglass-2"), width = 6, color = "teal")
     ),
 
@@ -41,6 +53,12 @@ ui <- dashboardPage(
     fluidRow(
       box(width = 12,
         dygraphOutput("timeseries.chart", height = "100px")
+      )
+    ),
+
+    fluidRow(
+      box(width = 12,
+        tableOutput("table")
       )
     )
 
