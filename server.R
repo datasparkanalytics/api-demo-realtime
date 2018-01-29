@@ -50,6 +50,12 @@ default.footfall <- data.frame(timestamp = as.POSIXct(Sys.time()), roi = "N.A.",
 
 #### Helpers
 
+# Log API query to stderr
+log.query <- function(query.body, name = "Unknown", file = stderr()) {
+  cat(as.character(as.POSIXlt(Sys.time(), tz = default.tz)), name, "query:\n", file = file)
+  capture.output(str(query.body), file = file)
+}
+
 # Get ROI data from Shapefiles
 get.roishape <- memoise(function(roi.layer) {
   readOGR("shapefiles", shp.meta[roi.layer, "layer"]) %>%
@@ -64,8 +70,7 @@ get.footfall.timestamp <- function(token, interval = 10) {
     interval = interval,
     aggregations = list(list(metric = "total_stays", type = "longSum"))
   )
-  cat("Footfall timestamp query:\n", file = stderr())
-  capture.output(str(query.body), file = stderr())
+  log.query(query.body, "Footfall timestamp")
   query.response <- POST(rt.ff.api.endpoint, add_headers(Authorization = paste("Bearer", token)),
                          body = query.body, encode = "json")
   warn_for_status(query.response)
@@ -92,8 +97,7 @@ get.footfall <- function(planning.region, roi.layer, token, interval = 10) {
     dimensionFacets = c("status", shp.meta[roi.layer, "levelType.name"]),
     aggregations = list(list(metric = "total_stays", type = "longSum"))
   )
-  cat("Footfall query:\n", file = stderr())
-  capture.output(str(query.body), file = stderr())
+  log.query(query.body, "Footfall")
   query.response <- POST(rt.ff.api.endpoint, add_headers(Authorization = paste("Bearer", token)),
                          body = query.body, encode = "json")
   warn_for_status(query.response)
