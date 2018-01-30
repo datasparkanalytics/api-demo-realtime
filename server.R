@@ -34,6 +34,7 @@ clock.refresh.ms <- 200
 file.refresh.ms <- 1000
 timestamp.refresh.ms <- 10000
 default.tz <- "Asia/Singapore"
+statuses <- c("Stay", "Pause", "Transit", "Unknown")
 shp.meta <- data.frame(
   layer = c("MP14_REGION_WEB_PL", "MP14_PLNG_AREA_WEB_PL", "MP14_SUBZONE_WEB_PL"),
   gov.id = c("REGION_C", "PLN_AREA_C", "SUBZONE_C"),
@@ -92,35 +93,37 @@ get.footfall.timestamp <- function(token, interval = 15) {
 }
 
 # Get footfall for the given Planning Region
-get.footfall <- function(planning.region, roi.layer, token, interval = 15) {
+get.footfall <- function(roi.id, roi.layer, token, interval = 15, filters = NA, groups = NA,
+                         name = "Footfall") {
   query.body <- list(
-    location = list(locationType = "locationHierarchyLevel", levelType = "planningregion",
-                    id = planning.region),
+    location = list(locationType = "locationHierarchyLevel", levelType = roi.layer, id = roi.id),
     interval = interval,
-    dimensionFacets = c("status", shp.meta[roi.layer, "roi.id"], shp.meta[roi.layer, "roi.name"]),
+    filter = filters,
+    dimensionFacets = unname(groups),
     aggregations = list(list(metric = "total_stays", type = "longSum"))
   )
-  log.query(query.body, "Footfall")
+  log.query(query.body, name)
   query.response <- POST(rt.ff.api.endpoint, add_headers(Authorization = paste("Bearer", token)),
                          body = query.body, encode = "json")
   warn_for_status(query.response)
+
   if (query.response$status_code == 200) {
     result <- content(query.response, as = "text") %>%
       as.tbl_json %>%
       gather_array %>%
       spread_values(
         timestamp.string = jstring("timestamp"),
-        roi.id = jstring("event", shp.meta[roi.layer, "roi.id"]),
-        roi.name = jstring("event", shp.meta[roi.layer, "roi.name"]),
-        status = jstring("event", "status"),
         count = jstring("event", "longSum_total_stays")
-      ) %>%
+      )
+    # Additional columns from groups
+    spreads.groups <- lapply(groups, function(g) jstring("event", g))
+    result <- do.call(function(...) spread_values(result, ...), spreads.groups)
+    result %>%
       mutate(
         timestamp = as.POSIXct(timestamp.string, format = "%Y-%m-%dT%H:%M:%S", tz = default.tz),
         count = as.integer(count)
       ) %>%
-      select(timestamp, roi.id, roi.name, status, count)
-    result
+      select(-timestamp.string)
   } else {
     default.footfall
   }
@@ -152,10 +155,6 @@ server <- function(input, output, session) {
     }
   })
 
-  # Logo
-  output$logo <- renderImage(list(src = normalizePath('logo.png'), height = "50px"),
-                             deleteFile = FALSE)
-
   # Current timer
   output$currentTime <- renderText({
     invalidateLater(clock.refresh.ms, session)
@@ -172,6 +171,72 @@ server <- function(input, output, session) {
     format(latest.ts(), "%Y-%m-%d %H:%M:%S %Z")
   })
 
+  # Latest footfall
+  footfall.latest <- reactivePoll(
+    timestamp.refresh.ms, session, latest.ts,
+    function() {
+      r <- roi()@data
+      planning.regions <- as.character(unique(r[[ shp.meta["planning-region", "gov.id"] ]]))
+
+      # Filters
+      fields <- list()
+      if (input$status != "All") {
+        # Status filter, if selected
+        fields <- list(type = "selector", dimension = "status", value = input$status)
+      }
+      # Filters, if any
+      filters <- if (length(fields)) fields else NA
+      # filters <- if (length(fields)) list(type = "and", fields = fields) else NA
+
+      # Run queries
+      ff <- planning.regions %>%
+        lapply(get.footfall, shp.meta["planning-region", "roi.id"], token(), interval = 15,
+               filters = filters,
+               groups = c(roi.id = shp.meta[input$layer, "roi.id"],
+                          roi.name = shp.meta[input$layer, "roi.name"]),
+               name = "Latest Footfall") %>%
+        bind_rows()
+
+      # Return latest records
+      ff[ff$timestamp == max(ff$timestamp), ]
+    })
+
+  # Latest footfall
+  footfall.latest.old <- reactive({
+    ff <- footfall()
+    ff <- ff[ff$timestamp == max(ff$timestamp), ]
+    if (input$status == "All") {
+      ff %>%
+        group_by(roi.id, roi.name) %>%
+        summarise(
+          timestamp = max(timestamp),
+          status = "All",
+          count = sum(count)
+        ) %>%
+        ungroup()
+    } else {
+      ff[ff$status == input$status, ]
+    }
+  })
+
+  # Footfall 24h trend
+  # footfall.24h <- reactivePoll(
+  #   timestamp.refresh.ms, session, latest.ts,
+  #   function() {
+  #   ff <- footfall()
+  #   ff %>%
+  #     group_by(status, timestamp) %>%
+  #     summarise(
+  #       count = sum(count)
+  #     ) %>%
+  #     ungroup() %>%
+  #     arrange(status, timestamp)
+  # })
+
+  # Logo
+  output$logo <- renderImage(list(src = normalizePath('logo.png'), height = "50px"),
+                             deleteFile = FALSE)
+
   # Base map
   output$map <- renderLeaflet({
     leaflet() %>%
@@ -187,35 +252,9 @@ server <- function(input, output, session) {
     r
   })
 
-  # Current Footfall data
-  current.footfall <- reactivePoll(
-    timestamp.refresh.ms, session, latest.ts,
-    function() {
-      r <- roi()@data
-      planning.regions <- as.character(unique(r[[ shp.meta["planning-region", "gov.id"] ]]))
-      ff <- bind_rows(lapply(planning.regions, get.footfall, input$layer, token()))
-      ff[ff$timestamp == max(ff$timestamp), ]
-    })
-
-  # Footfall map data, filtered by selected status
-  current.footfall.map <- reactive({
-    ff <- current.footfall()
-    if (input$status == "All") {
-      ff %>%
-        group_by(roi.id, roi.name) %>%
-        summarise(
-          timestamp = max(timestamp),
-          status = "All",
-          count = sum(count)
-        )
-    } else {
-      ff[ff$status == input$status, ]
-    }
-  })
-
   # Palette for shading current footfall
   pal <- reactive({
-    ff <- current.footfall.map()
+    ff <- footfall.latest()
     if (nrow(ff) <= 1) {
       colorBin("OrRd", 0, bins = 1)
     } else {
@@ -223,17 +262,13 @@ server <- function(input, output, session) {
     }
   })
 
-  output$table <- renderTable({
-    current.footfall.map()
-  })
-
   # ROI layer with data
   observe({
     r <- roi()
-    ff <- current.footfall.map()
+    ff <- footfall.latest()
     r@data <- left_join(r@data, ff, c("roi.id", "roi.name"))
-    labels <- sprintf("<strong>%s (%s)</strong><br/>%s: %d",
-                      r@data$roi.name, r@data$roi.id, r@data$status, r@data$count) %>%
+    labels <- sprintf("<strong>%s (%s)</strong><br/>%d",
+                      r@data$roi.name, r@data$roi.id, r@data$count) %>%
       lapply(HTML)
     leafletProxy("map", data = r) %>%
       clearGroup("rois") %>%
@@ -242,20 +277,25 @@ server <- function(input, output, session) {
                   highlight = highlightOptions(weight = 5, color = "royalblue4", bringToFront = TRUE),
                   label = labels,
                   labelOptions = labelOptions(style = list("font-weight" = "normal"), direction = "auto")
-                  )
+      )
   })
 
   # Time series chart
-  output$timeseries.chart <- renderDygraph({
-    # Mock data
-    datetimes <- seq.POSIXt(as.POSIXct("2015-01-01", tz=default.tz),
-                            as.POSIXct("2015-01-02", tz=default.tz), by="5 min")
-    values <- rnorm(length(datetimes))
-    series <- xts(values, order.by = datetimes, tz=default.tz)
-
-    dygraph(series) %>%
-      dyHighlight(highlightSeriesBackgroundAlpha = 0.3) %>%
-      dyOptions(useDataTimezone = TRUE)
-  })
+  # output$timeseries.chart <- renderDygraph({
+  #   ff <- footfall.24h()
+  #
+  #   series <- statuses %>%
+  #     lapply(function(s) {
+  #       f <- ff %>% filter(status == s)
+  #       xts(f$count, order.by = f$timestamp, tz = default.tz)
+  #     }) %>%
+  #     cbind
+  #
+  #   cat(str(series), file = stderr())
+  #
+  #   dygraph(series) %>%
+  #     dyHighlight(highlightSeriesBackgroundAlpha = 0.3) %>%
+  #     dyOptions(useDataTimezone = TRUE)
+  # })
 
 }

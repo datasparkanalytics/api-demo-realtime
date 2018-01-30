@@ -54,12 +54,6 @@ ui <- dashboardPage(
       box(width = 12,
         dygraphOutput("timeseries.chart", height = "100px")
       )
-    ),
-
-    fluidRow(
-      box(width = 12,
-        tableOutput("table")
-      )
     )
 
   ),
