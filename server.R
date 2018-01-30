@@ -66,7 +66,7 @@ get.roishape <- memoise(function(roi.layer) {
 })
 
 # Get latest timestamp from API
-get.footfall.timestamp <- function(token, interval = 10) {
+get.footfall.timestamp <- function(token, interval = 15) {
   query.body <- list(
     location = list(locationType = "locationHierarchyLevel", levelType = "planningregion",
                     id = "CR"),
@@ -92,7 +92,7 @@ get.footfall.timestamp <- function(token, interval = 10) {
 }
 
 # Get footfall for the given Planning Region
-get.footfall <- function(planning.region, roi.layer, token, interval = 10) {
+get.footfall <- function(planning.region, roi.layer, token, interval = 15) {
   query.body <- list(
     location = list(locationType = "locationHierarchyLevel", levelType = "planningregion",
                     id = planning.region),
