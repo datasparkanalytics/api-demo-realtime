@@ -18,7 +18,7 @@ ui <- dashboardPage(
   dashboardHeader(title = "Near Real Time Footfall Demo", titleWidth = 400),
 
   dashboardSidebar(
-    p(imageOutput("logo", height = "50px", inline = TRUE), align = "center"),
+    p(imageOutput("logo", height = "70px", inline = TRUE), align = "center"),
     selectInput("layer", "Layer",
                 c("Planning Region" = "planning-region",
                   "Planning Area" = "planning-area",
@@ -30,7 +30,11 @@ ui <- dashboardPage(
                    "Transit" = "Transit",
                    "Pause" = "Pause",
                    "Unknown" = "Unknown"),
-                 selected = "All")
+                 selected = "All"),
+    radioButtons("timeseries.stacked", "Stack Time Series?",
+                 c("Yes" = "Yes", "No" = "No"), selected = "No"),
+    htmlOutput("selected.roi"),
+    actionButton("clear.roi", "Clear ROI Selection")
   ),
 
   dashboardBody(

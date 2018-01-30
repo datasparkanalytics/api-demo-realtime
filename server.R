@@ -14,6 +14,7 @@ library(httr)
 library(leaflet)
 library(memoise)
 library(openssl)
+library(reshape2)
 library(rgdal)
 library(shiny)
 library(tidyjson)
@@ -34,7 +35,7 @@ clock.refresh.ms <- 200
 file.refresh.ms <- 1000
 timestamp.refresh.ms <- 10000
 default.tz <- "Asia/Singapore"
-statuses <- c("Stay", "Pause", "Transit", "Unknown")
+statuses <- c(Stay = "Stay", Pause = "Pause", Transit = "Transit", Unknown = "Unknown")
 shp.meta <- data.frame(
   layer = c("MP14_REGION_WEB_PL", "MP14_PLNG_AREA_WEB_PL", "MP14_SUBZONE_WEB_PL"),
   gov.id = c("REGION_C", "PLN_AREA_C", "SUBZONE_C"),
@@ -54,12 +55,6 @@ default.footfall <- data.frame(timestamp = as.POSIXct(Sys.time()), roi.id = "N.A
 
 #### Helpers
 
-# Log API query to stderr
-log.query <- function(query.body, name = "Unknown", file = stderr()) {
-  cat(as.character(as.POSIXlt(Sys.time(), tz = default.tz)), name, "query:\n", file = file)
-  capture.output(str(query.body), file = file)
-}
-
 # Get ROI data from Shapefiles
 get.roishape <- memoise(function(roi.layer) {
   readOGR("shapefiles", shp.meta[roi.layer, "layer"]) %>%
@@ -74,9 +69,8 @@ get.footfall.timestamp <- function(token, interval = 15) {
     interval = interval,
     aggregations = list(list(metric = "total_stays", type = "longSum"))
   )
-  log.query(query.body, "Footfall timestamp")
   query.response <- POST(rt.ff.api.endpoint, add_headers(Authorization = paste("Bearer", token)),
-                         body = query.body, encode = "json")
+                         body = query.body, encode = "json", verbose())
   warn_for_status(query.response)
   if (query.response$status_code == 200) {
     result <- content(query.response, as = "text") %>%
@@ -93,18 +87,16 @@ get.footfall.timestamp <- function(token, interval = 15) {
 }
 
 # Get footfall for the given Planning Region
-get.footfall <- function(roi.id, roi.layer, token, interval = 15, filters = NA, groups = NA,
-                         name = "Footfall") {
+get.footfall <- function(roi.id, roi.layer, token, interval = 15, filters = NULL, groups = NULL) {
   query.body <- list(
     location = list(locationType = "locationHierarchyLevel", levelType = roi.layer, id = roi.id),
     interval = interval,
-    filter = filters,
-    dimensionFacets = unname(groups),
     aggregations = list(list(metric = "total_stays", type = "longSum"))
   )
-  log.query(query.body, name)
+  if (!is.null(filters)) query.body[["filter"]] <- filters
+  if(!is.null(groups)) query.body[["dimensionFacets"]] <- unname(groups)
   query.response <- POST(rt.ff.api.endpoint, add_headers(Authorization = paste("Bearer", token)),
-                         body = query.body, encode = "json")
+                         body = query.body, encode = "json", verbose())
   warn_for_status(query.response)
 
   if (query.response$status_code == 200) {
@@ -113,17 +105,18 @@ get.footfall <- function(roi.id, roi.layer, token, interval = 15, filters = NA, 
       gather_array %>%
       spread_values(
         timestamp.string = jstring("timestamp"),
-        count = jstring("event", "longSum_total_stays")
+        count = jnumber("event", "longSum_total_stays")
       )
     # Additional columns from groups
     spreads.groups <- lapply(groups, function(g) jstring("event", g))
     result <- do.call(function(...) spread_values(result, ...), spreads.groups)
-    result %>%
+    result <- result %>%
       mutate(
         timestamp = as.POSIXct(timestamp.string, format = "%Y-%m-%dT%H:%M:%S", tz = default.tz),
         count = as.integer(count)
       ) %>%
       select(-timestamp.string)
+    result
   } else {
     default.footfall
   }
@@ -145,7 +138,7 @@ server <- function(input, output, session) {
   token <- reactive({
     token.response <- POST(token.api.endpoint,
                            add_headers(Authorization = paste("Basic", creds.b64())),
-                           body = "grant_type=client_credentials")
+                           body = "grant_type=client_credentials", verbose())
     warn_for_status(token.response)
     if (token.response$status_code == 200) {
       content(token.response)$access_token
@@ -185,56 +178,24 @@ server <- function(input, output, session) {
         fields <- list(type = "selector", dimension = "status", value = input$status)
       }
       # Filters, if any
-      filters <- if (length(fields)) fields else NA
-      # filters <- if (length(fields)) list(type = "and", fields = fields) else NA
+      filters <- if (length(fields)) fields else NULL
+      # filters <- if (length(fields)) list(type = "and", fields = fields) else NULL
 
       # Run queries
       ff <- planning.regions %>%
         lapply(get.footfall, shp.meta["planning-region", "roi.id"], token(), interval = 15,
                filters = filters,
-               groups = c(roi.id = shp.meta[input$layer, "roi.id"],
-                          roi.name = shp.meta[input$layer, "roi.name"]),
-               name = "Latest Footfall") %>%
+               groups = list(roi.id = shp.meta[input$layer, "roi.id"],
+                             roi.name = shp.meta[input$layer, "roi.name"])
+               ) %>%
         bind_rows()
 
       # Return latest records
       ff[ff$timestamp == max(ff$timestamp), ]
     })
 
-  # Latest footfall
-  footfall.latest.old <- reactive({
-    ff <- footfall()
-    ff <- ff[ff$timestamp == max(ff$timestamp), ]
-    if (input$status == "All") {
-      ff %>%
-        group_by(roi.id, roi.name) %>%
-        summarise(
-          timestamp = max(timestamp),
-          status = "All",
-          count = sum(count)
-        ) %>%
-        ungroup()
-    } else {
-      ff[ff$status == input$status, ]
-    }
-  })
-
-  # Footfall 24h trend
-  # footfall.24h <- reactivePoll(
-  #   timestamp.refresh.ms, session, latest.ts,
-  #   function() {
-  #   ff <- footfall()
-  #   ff %>%
-  #     group_by(status, timestamp) %>%
-  #     summarise(
-  #       count = sum(count)
-  #     ) %>%
-  #     ungroup() %>%
-  #     arrange(status, timestamp)
-  # })
-
   # Logo
-  output$logo <- renderImage(list(src = normalizePath('logo.png'), height = "50px"),
+  output$logo <- renderImage(list(src = normalizePath('logo.png'), height = "70px"),
                              deleteFile = FALSE)
 
   # Base map
@@ -256,9 +217,9 @@ server <- function(input, output, session) {
   pal <- reactive({
     ff <- footfall.latest()
     if (nrow(ff) <= 1) {
-      colorBin("OrRd", 0, bins = 1)
+      colorBin("OrRd", 0)
     } else {
-      colorBin("OrRd", ff$count, bins = 7)
+      colorBin("OrRd", ff$count)
     }
   })
 
@@ -267,8 +228,8 @@ server <- function(input, output, session) {
     r <- roi()
     ff <- footfall.latest()
     r@data <- left_join(r@data, ff, c("roi.id", "roi.name"))
-    labels <- sprintf("<strong>%s (%s)</strong><br/>%d",
-                      r@data$roi.name, r@data$roi.id, r@data$count) %>%
+    labels <- sprintf("<strong>%s (%s)</strong><br/>%s: %d",
+                      r@data$roi.name, r@data$roi.id, input$status, r@data$count) %>%
       lapply(HTML)
     leafletProxy("map", data = r) %>%
       clearGroup("rois") %>%
@@ -280,22 +241,83 @@ server <- function(input, output, session) {
       )
   })
 
+  # Selected ROI on the map
+  roi.selected <- reactiveValues()
+  roi.selected$id <- NULL
+  roi.selected$name <- NULL
+
+  observeEvent(input$map_shape_click, {
+    event <- input$map_shape_click
+    if (! is.null(event) && event$group == "rois") {
+      roi.selected$id <- event$id
+      r <- roi()
+      which.roi <- r@data[[ shp.meta[input$layer, "gov.id"] ]] == roi.selected$id
+      roi.selected$name <- r@data[[ shp.meta[input$layer, "gov.name"] ]][ which.roi ]
+    }
+  })
+
+  observeEvent(input$clear.roi, {
+    roi.selected$id <- NULL
+    roi.selected$name <- NULL
+  })
+
+  output$selected.roi <- renderText({
+    if (!is.null(roi.selected$id)) {
+      sprintf("<p><strong>Selected ROI</strong></p><p>%s (%s)</p>", roi.selected$name, roi.selected$id)
+    } else {
+      "<p><strong>Selected ROI</strong></p><p>None</p>"
+    }
+  })
+
+  # Footfall 24h trend
+  footfall.24h.all <- reactivePoll(
+    timestamp.refresh.ms, session, latest.ts,
+    function() {
+      r <- roi()@data
+      planning.regions <- as.character(unique(r[[ shp.meta["planning-region", "gov.id"] ]]))
+
+      # Run queries
+      ff <- planning.regions %>%
+        lapply(get.footfall, shp.meta["planning-region", "roi.id"], token(), interval = 1440,
+               groups = list(status = "status")) %>%
+        bind_rows() %>%
+        group_by(status, timestamp) %>%
+        summarise(count = sum(count)) %>%
+        ungroup()
+    }
+  )
+
+  footfall.24h <- reactivePoll(
+    timestamp.refresh.ms, session, latest.ts,
+    function() {
+      r <- roi()@data
+      planning.regions <- as.character(unique(r[[ shp.meta["planning-region", "gov.id"] ]]))
+      roi.id <- roi.selected$id
+
+      # Run queries
+      if (is.null(roi.id)) {
+        # No ROI selected, query over all planning regions
+        ff <- footfall.24h.all()
+      } else {
+        # Query over selected ROI
+        ff <- get.footfall(roi.id, shp.meta[input$layer, "roi.id"], token(), interval = 1440,
+                           groups = list(status = "status"))
+      }
+      df <- ff %>% dcast(timestamp ~ status, value.var = "count", drop = FALSE)
+      timestamps <- df$timestamp
+      df$timestamp <- NULL
+      xts(df, timestamps)
+    })
+
   # Time series chart
-  # output$timeseries.chart <- renderDygraph({
-  #   ff <- footfall.24h()
-  #
-  #   series <- statuses %>%
-  #     lapply(function(s) {
-  #       f <- ff %>% filter(status == s)
-  #       xts(f$count, order.by = f$timestamp, tz = default.tz)
-  #     }) %>%
-  #     cbind
-  #
-  #   cat(str(series), file = stderr())
-  #
-  #   dygraph(series) %>%
-  #     dyHighlight(highlightSeriesBackgroundAlpha = 0.3) %>%
-  #     dyOptions(useDataTimezone = TRUE)
-  # })
+  ts.stack <- reactive({ if (input$timeseries.stacked == "Yes") TRUE else FALSE })
+
+  output$timeseries.chart <- renderDygraph({
+    series <- footfall.24h()
+    dygraph(series) %>%
+      dyHighlight(highlightSeriesBackgroundAlpha = 0.5) %>%
+      dyOptions(useDataTimezone = TRUE, includeZero = TRUE, labelsKMB = TRUE, maxNumberWidth = 10,
+                stackedGraph = ts.stack(), fillGraph = ts.stack())
+  })
 
 }
