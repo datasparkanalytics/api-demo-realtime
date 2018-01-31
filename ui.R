@@ -15,15 +15,20 @@ library(shinydashboard)
 # Define UI for application
 ui <- dashboardPage(
 
+  # App Title
   dashboardHeader(title = "Near Real Time Footfall Demo", titleWidth = 400),
 
   dashboardSidebar(
-    p(imageOutput("logo", height = "70px", inline = TRUE), align = "center"),
+    # Logo
+    p(img(src = "logo.png", width = "155px", height = "100px"),
+      align = "center"),
+    # ROI Layer selector
     selectInput("layer", "Layer",
                 c("Planning Region" = "planning-region",
                   "Planning Area" = "planning-area",
                   "Sub Zone" = "sub-zone"),
                 selected = "sub-zone"),
+    # Status selector
     radioButtons("status", "Status",
                  c("All" = "All",
                    "Stay" = "Stay",
@@ -31,36 +36,36 @@ ui <- dashboardPage(
                    "Pause" = "Pause",
                    "Unknown" = "Unknown"),
                  selected = "All"),
+    # Time series display selector
     radioButtons("timeseries.stacked", "Stack Time Series?",
                  c("Yes" = "Yes", "No" = "No"), selected = "No"),
-    htmlOutput("selected.roi"),
-    actionButton("clear.roi", "Clear ROI Selection")
+    # Selected ROI indicator
+    div(class = "shiny-input-container",
+        tag("label", list("Selected ROI", class="control-label")),
+        uiOutput("selected.roi", class="shiny-input-container")
+        )
   ),
 
   dashboardBody(
     # Status Bar
     fluidRow(
-      valueBox("Now", subtitle = textOutput("currentTime"),
+      # Current time display
+      valueBox("Now", subtitle = textOutput("current.time"),
                icon = icon("clock-o"), width = 6, color = "light-blue"),
-      valueBox("Latest", subtitle = textOutput("latestTime"),
+      # Latest data timestamp display
+      valueBox("Latest", subtitle = textOutput("latest.time"),
                icon = icon("hourglass-2"), width = 6, color = "teal")
     ),
 
-    # Map
     fluidRow(
-      box(width = 12,
-        leafletOutput("map", height = "350px")
-      )
+      # Map
+      box(width = 12, leafletOutput("map", height = "350px"))
     ),
 
-    # Time Series
     fluidRow(
-      box(width = 12,
-        dygraphOutput("timeseries.chart", height = "100px")
-      )
+      # Time series chart
+      box(width = 12, dygraphOutput("timeseries.chart", height = "100px"))
     )
-
   ),
-
   skin = "blue"
 )
