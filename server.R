@@ -75,11 +75,11 @@ get.roishape <- memoise(function(roi.layer) {
 })
 
 # Get latest timestamp from API
-get.latest.timestamp <- function(token, interval = 180) {
+get.latest.timestamp <- function(token, period = 180) {
   query.body <- list(
     location = list(locationType = "locationHierarchyLevel",
                     levelType = "planningarea", id = "DT"),
-    interval = interval,
+    period = period,
     aggregations = list(list(metric = "total_count", type = "longSum"))
   )
   resp <- POST(rt.ff.api.endpoint,
@@ -102,12 +102,12 @@ get.latest.timestamp <- function(token, interval = 180) {
 }
 
 # Get footfall for the given Planning Region
-get.footfall <- function(roi.id, roi.layer, token, interval = 15,
+get.footfall <- function(roi.id, roi.layer, token, period = 15,
                          filters = NULL, groups = NULL) {
   query.body <- list(
     location = list(locationType = "locationHierarchyLevel",
                     levelType = roi.layer, id = roi.id),
-    interval = interval,
+    period = period,
     aggregations = list(list(metric = "unique_agents", type = "hyperUnique"))
   )
   if (!is.null(filters)) query.body[["filter"]] <- filters
@@ -244,7 +244,7 @@ server <- function(input, output, session) {
       # Run queries
       ff <- planning.regions %>%
         lapply(get.footfall, shp.meta["planning-region", "api.id"], token(),
-               interval = 15, filters = filters,
+               period = 15, filters = filters,
                groups = list(roi.id = shp.meta[input$layer, "api.id"],
                              roi.name = shp.meta[input$layer, "api.name"])
         ) %>%
@@ -310,7 +310,7 @@ server <- function(input, output, session) {
       # Run queries
       ff <- planning.regions %>%
         lapply(get.footfall, shp.meta["planning-region", "api.id"], token(),
-               interval = 1440, groups = list(status = "status")) %>%
+               period = 1440, groups = list(status = "status")) %>%
         bind_rows() %>%
         group_by(status, timestamp) %>%
         summarise(count = sum(count)) %>%
@@ -334,7 +334,7 @@ server <- function(input, output, session) {
       } else {
         # Query over selected ROI
         ff <- get.footfall(roi.id, shp.meta[input$layer, "api.id"], token(),
-                           interval = 1440, groups = list(status = "status"))
+                           period = 1440, groups = list(status = "status"))
       }
       df <- ff %>% dcast(timestamp ~ status, value.var = "count", drop = FALSE)
       timestamps <- df$timestamp
