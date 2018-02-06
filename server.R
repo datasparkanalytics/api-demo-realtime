@@ -101,7 +101,7 @@ get.latest.timestamp <- function(token, period = 180) {
   }
 }
 
-# Get footfall for the given Planning Region
+# Get footfall for the given ROI, with optional filters and groups
 get.footfall <- function(roi.id, roi.layer, token, period = 15,
                          filters = NULL, groups = NULL) {
   query.body <- list(
@@ -125,6 +125,7 @@ get.footfall <- function(roi.id, roi.layer, token, period = 15,
     # Additional columns from groups
     spreads.groups <- lapply(groups, function(g) jstring("event", g))
     result <- do.call(function(...) spread_values(result, ...), spreads.groups)
+    # Transform and select columns
     result <- result %>%
       mutate(
         timestamp = as.POSIXct(timestamp.string, format = "%Y-%m-%dT%H:%M:%S",
@@ -132,11 +133,13 @@ get.footfall <- function(roi.id, roi.layer, token, period = 15,
         count = as.integer(count)
       ) %>%
       select(-timestamp.string)
+    # Columns returned: timestamp, count, and any specified groups
     result
   } else {
-    data.frame(timestamp = as.POSIXct(NA), roi.id = as.character(NA),
-               roi.name = as.character(NA), status = as.character(NA),
-               count = as.integer(NA), stringsAsFactors = FALSE)
+    # Empty data frame
+    result <- list(timestamp = as.POSIXct(NA), count = as.integer(NA))
+    result <- c(result, lapply(groups, function(x) as.character(NA)))
+    as.data.frame(result)
   }
 }
 
