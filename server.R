@@ -237,7 +237,7 @@ server <- function(input, output, session) {
 
       # Period
       period <-
-        as.integer(difftime(Sys.time(), latest.ts(), default.tz, "mins")) + 1L
+        as.integer(difftime(Sys.time(), latest.ts(), default.tz, "mins")) + 3L
 
       # Filters
       if (input$status != "All") {
@@ -306,6 +306,10 @@ server <- function(input, output, session) {
   })
 
   # Footfall 24h trend
+  footfall.24h.cache <- reactiveVal(
+    data.frame(status = as.character(NA), timestamp = as.POSIXct(NA),
+               count = as.integer(NA))
+  )
   footfall.24h.all <- reactivePoll(
     timestamp.refresh, session, latest.ts,
     function() {
@@ -314,14 +318,39 @@ server <- function(input, output, session) {
         unique() %>%
         as.character()
 
-      # Run queries
-      ff <- planning.regions %>%
-        lapply(get.footfall, shp.meta["planning-region", "api.id"], token(),
-               period = 1440, groups = list(status = "status")) %>%
-        bind_rows() %>%
-        group_by(status, timestamp) %>%
-        summarise(count = sum(count)) %>%
-        ungroup()
+      # Check if latest data is already available; if not, compute the period of
+      # data to be queried
+      ff <- footfall.24h.cache()
+      ff.max.time <- max(ff$timestamp)
+      period <- 0
+      if (is.na(ff.max.time)) {
+        period <- 1440
+      } else if (ff.max.time < latest.ts()) {
+        period <- as.integer(difftime(latest.ts(), ff.max.time, "mins")) + 3L
+      }
+
+      # Run queries if latest data needs to be retrieved.
+      if (period > 0) {
+        ff.new <- planning.regions %>%
+          lapply(get.footfall, shp.meta["planning-region", "api.id"], token(),
+                 period = period, groups = list(status = "status")) %>%
+          bind_rows() %>%
+          group_by(status, timestamp) %>%
+          summarise(count = sum(count)) %>%
+          ungroup()
+        if (!is.na(ff.max.time)) {
+          ff.new <- ff.new %>% filter(timestamp > ff.max.time)
+        }
+        ff <- bind_rows(ff, ff.new)
+      }
+
+      # Remove records more than 24h from the latest timestamp
+      ff <- ff %>%
+        filter(!is.na(timestamp)) %>%
+        filter(timestamp >= max(timestamp) - 24*60*60)
+      print(summary(ff))
+      footfall.24h.cache(ff)
+      ff
     }
   )
 
