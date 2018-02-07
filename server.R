@@ -75,7 +75,7 @@ get.roishape <- memoise(function(roi.layer) {
 })
 
 # Get latest timestamp from API
-get.latest.timestamp <- function(token, period = 180) {
+get.latest.timestamp <- function(token, period = 1440) {
   query.body <- list(
     location = list(locationType = "locationHierarchyLevel",
                     levelType = "planningarea", id = "DT"),
@@ -235,6 +235,10 @@ server <- function(input, output, session) {
         unique() %>%
         as.character()
 
+      # Period
+      period <-
+        as.integer(difftime(Sys.time(), latest.ts(), default.tz, "mins")) + 1L
+
       # Filters
       if (input$status != "All") {
         # Status filter, if selected
@@ -245,9 +249,9 @@ server <- function(input, output, session) {
       }
 
       # Run queries
-      ff <- planning.regions %>%
+      planning.regions %>%
         lapply(get.footfall, shp.meta["planning-region", "api.id"], token(),
-               period = 15, filters = filters,
+               period = period, filters = filters,
                groups = list(roi.id = shp.meta[input$layer, "api.id"],
                              roi.name = shp.meta[input$layer, "api.name"])
         ) %>%
