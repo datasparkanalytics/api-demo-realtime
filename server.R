@@ -227,37 +227,36 @@ server <- function(input, output, session) {
   })
 
   # Latest footfall
-  footfall.latest <- reactivePoll(
-    timestamp.refresh, session, latest.ts,
-    function() {
-      r <- roi()@data
-      planning.regions <- r[[ shp.meta["planning-region", "shp.id"] ]] %>%
-        unique() %>%
-        as.character()
+  footfall.latest <- reactive({
+    r <- roi()@data
+    planning.regions <- r[[ shp.meta["planning-region", "shp.id"] ]] %>%
+      unique() %>%
+      as.character()
 
-      # Period
-      period <-
-        as.integer(difftime(Sys.time(), latest.ts(), default.tz, "mins")) + 3L
+    # Period
+    period <-
+      as.integer(difftime(Sys.time(), latest.ts(), default.tz, "mins")) + 15L
 
-      # Filters
-      if (input$status != "All") {
-        # Status filter, if selected
-        filters <- list(type = "selector", dimension = "status",
-                        value = input$status)
-      } else {
-        filters <- NULL
-      }
+    # Filters
+    if (input$status != "All") {
+      # Status filter, if selected
+      filters <- list(type = "selector", dimension = "status",
+                      value = input$status)
+    } else {
+      filters <- NULL
+    }
 
-      # Run queries
-      planning.regions %>%
-        lapply(get.footfall, shp.meta["planning-region", "api.id"], token(),
-               period = period, filters = filters,
-               groups = list(roi.id = shp.meta[input$layer, "api.id"],
-                             roi.name = shp.meta[input$layer, "api.name"])
-        ) %>%
-        bind_rows() %>%
-        filter(timestamp == max(timestamp))
-    })
+    # Run queries
+    ff <- planning.regions %>%
+      lapply(get.footfall, shp.meta["planning-region", "api.id"], token(),
+             period = period, filters = filters,
+             groups = list(roi.id = shp.meta[input$layer, "api.id"],
+                           roi.name = shp.meta[input$layer, "api.name"])
+      ) %>%
+      bind_rows() %>%
+      filter(timestamp == max(timestamp))
+    ff
+  })
 
   # Base map
   output$map <- renderLeaflet({
@@ -307,81 +306,83 @@ server <- function(input, output, session) {
 
   # Footfall 24h trend
   footfall.24h.cache <- reactiveVal(
-    data.frame(status = as.character(NA), timestamp = as.POSIXct(NA),
-               count = as.integer(NA))
+    data.frame(roi.id = character(), status = character(),
+               timestamp = as.POSIXct(character()), count = integer(),
+               stringsAsFactors = FALSE)
   )
-  footfall.24h.all <- reactivePoll(
-    timestamp.refresh, session, latest.ts,
-    function() {
-      r <- roi()@data
-      planning.regions <- r[[shp.meta["planning-region", "shp.id"]]] %>%
-        unique() %>%
-        as.character()
 
-      # Check if latest data is already available; if not, compute the period of
-      # data to be queried
-      ff <- footfall.24h.cache()
-      ff.max.time <- max(ff$timestamp)
-      period <- 0
-      if (is.na(ff.max.time)) {
-        period <- 1440
-      } else if (ff.max.time < latest.ts()) {
-        period <- as.integer(difftime(latest.ts(), ff.max.time, "mins")) + 3L
-      }
+  footfall.24h <- reactive({
+    roi <- if (is.null(roi.selected$id)) "ALL" else roi.selected$id
+    latest.timestamp <- latest.ts()
 
-      # Run queries if latest data needs to be retrieved.
-      if (period > 0) {
-        ff.new <- planning.regions %>%
-          lapply(get.footfall, shp.meta["planning-region", "api.id"], token(),
-                 period = period, groups = list(status = "status")) %>%
-          bind_rows() %>%
-          group_by(status, timestamp) %>%
-          summarise(count = sum(count)) %>%
-          ungroup()
-        if (!is.na(ff.max.time)) {
-          ff.new <- ff.new %>% filter(timestamp > ff.max.time)
-        }
-        ff <- bind_rows(ff, ff.new)
-      }
-
-      # Remove records more than 24h from the latest timestamp
-      ff <- ff %>%
-        filter(!is.na(timestamp)) %>%
-        filter(timestamp >= max(timestamp) - 24*60*60)
-      print(summary(ff))
-      footfall.24h.cache(ff)
-      ff
+    # Check if latest data is already available; if not, compute the period of
+    # data to be queried
+    ff <- isolate(footfall.24h.cache())
+    ff.roi <- ff %>% filter(roi.id == roi)
+    if (nrow(ff.roi)) {
+      ff.max.time <- ff.roi %>% summarise(max = max(timestamp)) %>% `[[`("max")
+      time.diff <- as.integer(difftime(latest.timestamp, ff.max.time, "mins"))
+      # Set a positive period (to trigger a query) only if the latest data in
+      # cache is older than the latest available in the API
+      period <- if(time.diff > 0) time.diff + 3L else 0L
+    } else {
+      period <- 1440L
     }
-  )
 
-  footfall.24h <- reactivePoll(
-    timestamp.refresh, session, latest.ts,
-    function() {
-      r <- roi()@data
+    # If there is no new data to retrieve, simply return what is in cache
+    if (!period) {
+      return(ff.roi)
+    }
+
+    # Run queries
+    if (roi == "ALL") {
+      # Get data for whole of SG, one planning region at a time
+      # (API does not allow data for the whole of SG to be retrieved in 1 query)
+      r <- isolate(roi()@data)
       planning.regions <- r[[shp.meta["planning-region", "shp.id"]]] %>%
-        unique() %>%
-        as.character()
-      roi.id <- roi.selected$id
+        unique() %>% as.character()
+      ff.new <- planning.regions %>%
+        lapply(get.footfall, shp.meta["planning-region", "api.id"], token(),
+               period = period, groups = list(status = "status")) %>%
+        bind_rows() %>%
+        group_by(status, timestamp) %>%
+        summarise(count = sum(count)) %>%
+        ungroup()
+    } else {
+      # Get data for selected ROI
+      ff.new <-
+        get.footfall(roi, shp.meta[input$layer, "api.id"], token(),
+                     period = period, groups = list(status = "status")) %>%
+        select(status, timestamp, count)
+    }
 
-      # Run queries
-      if (is.null(roi.id)) {
-        # No ROI selected, query over all planning regions
-        ff <- footfall.24h.all()
-      } else {
-        # Query over selected ROI
-        ff <- get.footfall(roi.id, shp.meta[input$layer, "api.id"], token(),
-                           period = 1440, groups = list(status = "status"))
-      }
-      df <- ff %>% dcast(timestamp ~ status, value.var = "count", drop = FALSE)
-      timestamps <- df$timestamp
-      df$timestamp <- NULL
-      xts(df, timestamps)
-    })
+    # Tag ROI ID, get only rows that are not already in cache,
+    # and append to the full dataframe
+    ff.new <- ff.new %>% mutate(roi.id = roi)
+    if (nrow(ff.roi)) {
+      ff.new <- ff.new %>% filter(timestamp > ff.max.time)
+    }
+    ff <- bind_rows(ff, ff.new)
+
+    # Remove records more than 24h from the latest timestamp, and save to cache
+    ff <- ff %>%
+      filter(timestamp >= max(timestamp) - 24*60*60)
+    footfall.24h.cache(ff)
+
+    # Return footfall data for selected ROI
+    ff %>% filter(roi.id == roi)
+  })
 
   # Time series chart
   ts.stack <- reactive({ input$timeseries.stacked == "Yes" })
   output$timeseries.chart <- renderDygraph({
-    series <- footfall.24h()
+    ff <- footfall.24h()
+    df <- ff %>%
+      dcast(timestamp ~ status, value.var = "count", drop = FALSE)
+    timestamps <- df$timestamp
+    df$timestamp <- NULL
+    series <- xts(df, timestamps)
+
     dygraph(series) %>%
       dyHighlight(highlightSeriesBackgroundAlpha = 0.5) %>%
       dyOptions(useDataTimezone = TRUE, includeZero = TRUE, labelsKMB = TRUE,
