@@ -381,7 +381,7 @@ server <- function(input, output, session) {
       dcast(timestamp ~ status, value.var = "count", drop = FALSE)
     timestamps <- df$timestamp
     df$timestamp <- NULL
-    series <- xts(df, timestamps)
+    series <- xts(df, timestamps, tzone = default.tz)
 
     dygraph(series) %>%
       dyHighlight(highlightSeriesBackgroundAlpha = 0.5) %>%
